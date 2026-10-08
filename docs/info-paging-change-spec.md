@@ -9,6 +9,16 @@
 `NotificationController.java`
 
 ```java
+// [추가] 클래스 상단 필드 (컨트롤러에 이미 주입되어 있으면 생략)
+private static final String INFO_SE_CD     = "0002";        // 재정정보 게시판 구분코드
+private static final String BIZ_KEYWORD    = "업무추진비";   // 기존 JS classify()와 동일 기준
+private static final int    INFO_FETCH_MAX = 1000;          // 재정정보 전체 건수보다 충분히 큰 값
+
+@Autowired
+private MngNotificationService mngNotificationService;     // import org.springframework.beans.factory.annotation.Autowired;
+```
+
+```java
 /* 재정정보 목록 API : 현재 페이지 분량만 반환 */
 @RequestMapping(value = "/notification/selectInfoList.do", method = RequestMethod.GET)
 public String selectInfoList(HttpServletRequest request, ModelMap model) throws Exception {
@@ -20,7 +30,7 @@ public String selectInfoList(HttpServletRequest request, ModelMap model) throws 
     int to   = Math.min(from + size, items.size());
 
     model.addAttribute("result", new ArrayList<MngNotificationVO>(items.subList(from, to)));
-    return "jsonView";   // ※ 공통 API와 같은 JSON 반환 방식
+    return "jsonView";   // dispatcher-servlet.xml에 등록된 JSON View 빈 이름 (공통 API와 같은 방식)
 }
 
 
@@ -48,8 +58,8 @@ private List<MngNotificationVO> selectInfoTabItems(HttpServletRequest request) t
     body.setSize(String.valueOf(INFO_FETCH_MAX));
     // ▲▲
 
-    // 공통 selectBoardListFile.do와 같은 서비스 메서드 호출 (호출 후 후처리가 있으면 동일하게)
-    List<MngNotificationVO> all = boardService.selectBoardListFile(body);
+    // 공통 selectBoardListFile.do가 호출하는 것과 같은 메서드 (메서드명은 실제 이름으로, 후처리가 있으면 동일하게)
+    List<MngNotificationVO> all = mngNotificationService.selectBoardListFile(body);
 
     List<MngNotificationVO> tabItems = new ArrayList<MngNotificationVO>();
     for (MngNotificationVO item : all) {
@@ -232,7 +242,8 @@ jQuery(function () {
 | 항목 | 확인 내용 |
 |---|---|
 | ▼▲ 사이 4줄 | 공통 `selectBoardListFile.do`에서 `MngNotificationVO`에 검색어·페이징 값을 넣는 줄을 복사하고 page=1, size=`INFO_FETCH_MAX`로만 변경 |
-| 공통 서비스 | 같은 메서드에서 서비스 빈 이름·타입·호출 메서드명과 호출 후 후처리(fileId 암호화 등) 확인 |
+| 서비스 메서드 | `MngNotificationService`에서 공통 `selectBoardListFile.do`가 호출하는 메서드명과 호출 후 후처리(fileId 암호화 등) 확인. 구현체가 2개 이상이면 `@Qualifier` 추가 |
+| jsonView | `dispatcher-servlet.xml`에 `jsonView` 빈이 있는지 확인. 공통 API가 `@ResponseBody`를 쓰면 그 방식으로 변경 |
 | 반환 타입 | `List<EgovMap>`이면 목록 타입을 맞추고 제목은 `(String) item.get("ntcnYardSjNm")` |
 | size 상한 | 공통 쪽에서 size를 제한하는지 (1000건 일괄 조회가 적용되는지) |
 | 인터셉터 | `/kor/**` 인터셉터가 model에 값을 추가하면 신규 API 경로 2개를 `exclude-mapping` |
