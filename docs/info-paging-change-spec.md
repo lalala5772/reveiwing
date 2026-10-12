@@ -1,201 +1,85 @@
-# 재정정보 탭 서버 페이징 — 코드 변경 명세 (1-5 ~ 4)
+# 재정정보 탭 서버 페이징 — 최종 수정안
 
-표기: **[변경]** / **[추가]** / **[주석처리]**
+## 0. 수정 범위
 
----
-
-## 1-5. 탭 목록·건수 API + 헬퍼 [추가]
-
-`NotificationController.java`
-
-```java
-// [추가] 클래스 상단 필드 (컨트롤러에 이미 주입되어 있으면 생략)
-private static final String INFO_SE_CD     = "0002";        // 재정정보 게시판 구분코드
-private static final String BIZ_KEYWORD    = "업무추진비";   // 기존 JS classify()와 동일 기준
-private static final int    INFO_FETCH_MAX = 1000;          // 재정정보 전체 건수보다 충분히 큰 값
-
-@Autowired
-private MngNotificationService mngNotificationService;     // import org.springframework.beans.factory.annotation.Autowired;
-```
-
-```java
-/* 재정정보 목록 API : 현재 페이지 분량만 반환 */
-@RequestMapping(value = "/notification/selectInfoList.do", method = RequestMethod.GET)
-public String selectInfoList(HttpServletRequest request, ModelMap model) throws Exception {
-    int size = parseIntOrDefault(request.getParameter("size"), 10, 10, 50);
-    int page = parseIntOrDefault(request.getParameter("page"), 1, 1, 100000);
-
-    List<MngNotificationVO> items = selectInfoTabItems(request);
-    int from = Math.min((page - 1) * size, items.size());
-    int to   = Math.min(from + size, items.size());
-
-    model.addAttribute("result", new ArrayList<MngNotificationVO>(items.subList(from, to)));
-    return "jsonView";   // dispatcher-servlet.xml에 등록된 JSON View 빈 이름 (공통 API와 같은 방식)
-}
-
-
-/* 재정정보 건수 API : 선택 탭 기준 건수 */
-@RequestMapping(value = "/notification/selectInfoListCnt.do", method = RequestMethod.GET)
-public String selectInfoListCnt(HttpServletRequest request, ModelMap model) throws Exception {
-    model.addAttribute("result", selectInfoTabItems(request).size());
-    return "jsonView";
-}
-
-
-/* 공통 서비스로 재정정보 전체 조회 → 탭 기준 분류 */
-private List<MngNotificationVO> selectInfoTabItems(HttpServletRequest request) throws Exception {
-    boolean bizTab = "biz".equals(toInfoTab(request.getParameter("tab")));
-
-    // 기존 info_view.do와 같은 방식으로 MngNotificationVO 구성
-    MngNotificationVO body = new MngNotificationVO();
-    body.setNtcnYardTySeCd(INFO_SE_CD);   // seCd : 요청값 대신 고정 (기존 코드와 같은 setter)
-
-    // ▼▼ 공통 selectBoardListFile.do에서 검색어·페이징 값을 MngNotificationVO에 넣는 줄을
-    //    그대로 복사한 뒤, page는 1 / size는 INFO_FETCH_MAX 로만 바꿀 것 (아래 setter 이름은 예시)
-    body.setSelScope(request.getParameter("selScope"));
-    body.setSubSech(request.getParameter("subSech"));
-    body.setPage("1");
-    body.setSize(String.valueOf(INFO_FETCH_MAX));
-    // ▲▲
-
-    // 공통 selectBoardListFile.do가 호출하는 것과 같은 메서드 (메서드명은 실제 이름으로, 후처리가 있으면 동일하게)
-    List<MngNotificationVO> all = mngNotificationService.selectBoardListFile(body);
-
-    List<MngNotificationVO> tabItems = new ArrayList<MngNotificationVO>();
-    for (MngNotificationVO item : all) {
-        String title = item.getNtcnYardSjNm();
-        boolean isBiz = title != null && title.contains(BIZ_KEYWORD);
-        if (isBiz == bizTab) {
-            tabItems.add(item);
-        }
-    }
-    return tabItems;
-}
-
-
-/* 헬퍼 */
-private static String toInfoTab(String v) {
-    return "etc".equals(v) ? "etc" : "biz";
-}
-
-private static int parseIntOrDefault(String v, int def, int min, int max) {
-    try {
-        int n = Integer.parseInt(v);
-        return (n < min || n > max) ? def : n;
-    } catch (NumberFormatException e) {
-        return def;
-    }
-}
-```
+| 구분 | 파일 | 수정 |
+|---|---|---|
+| JSP | `info.jsp` | **변경**: `#searchForm`에 `tab` 1줄, 스크립트 교체 |
+| JSP | `info_view.jsp` | 없음 |
+| Controller | `NotificationController.java` | **추가**: 탭 목록·건수 API 2개 + private 메서드 2개 |
+| Controller | `info.do`, `info_view.do` 메서드 | 없음 |
+| Service | `MngNotificationService` | 없음 (기존 목록 조회 메서드 재사용) |
+| Mapper / 공통 JS | 공통 Mapper, `board.js`, `paging.js` | 없음 |
 
 ---
 
-## 2. 프론트: `info.jsp`
+## 1. JSP — `info.jsp`
 
-### 2-1. 탭 마크업 [변경]
-
-```jsp
-<nav class="link_tab len_5" id="infoTab" style="padding-bottom:0px !important; margin-bottom:0px !important;">
-    <ul class="inner">
-        <li data-tab="biz" class="${tab eq 'biz' ? 'current' : ''}">
-            <a href="#" ${tab eq 'biz' ? 'title="선택됨"' : ''}>업무추진비</a>
-        </li>
-        <li data-tab="etc" class="${tab eq 'etc' ? 'current' : ''}">
-            <a href="#" ${tab eq 'etc' ? 'title="선택됨"' : ''}>그 외 기타정보</a>
-        </li>
-    </ul>
-</nav>
-```
-
-### 2-2. `#searchForm` [변경]
+### 1-1. `#searchForm` [추가 1줄]
 
 ```jsp
 <form id="searchForm" method="POST">
-    <input type="hidden" name="selScope"       id="selScope" value="<c:out value='${selScope}'/>">
-    <input type="hidden" name="subSech"        id="subSech"  value="<c:out value='${subSech}'/>">
-    <input type="hidden" name="size"           id="size"     value="<c:out value='${size}'/>">
-    <input type="hidden" name="page"           id="page"     value="<c:out value='${page}'/>">
-    <input type="hidden" name="seCd"           id="seCd"     value="0002">
-    <%-- [추가] --%>
-    <input type="hidden" name="tab"            id="tab"      value="<c:out value='${tab}'/>">
+    <input type="hidden" name="selScope" id="selScope" value="">
+    <input type="hidden" name="subSech"  id="subSech"  value="">
+    <input type="hidden" name="size"     id="size"     value="10">
+    <input type="hidden" name="page"     id="page"     value="1">
+    <input type="hidden" name="seCd"     id="seCd"     value="0002">
+    <input type="hidden" name="tab"      id="tab"      value="biz">   <%-- [추가] --%>
     <input type="hidden" name="ntcnYardOrdrNo" id="ntcnYardOrdrNo" value="">
 </form>
 ```
+기존 `value` 출력 방식(`${size}` 등)은 그대로 두고 `tab` 줄만 추가합니다.
 
-### 2-3. 기존 스크립트 [주석처리]
+### 1-2. 탭 마크업 [변경 없음]
 
-기존 `<script>(function(){ 'use strict'; ... })();</script>` 블록 전체를 `<%-- ... --%>`로 감쌉니다.
-대상: `loadAllPages`, `classify`, `renumber`, `render`, `renderPaging`, `goPaging_PagingViewBiz/Etc`, resize 핸들러.
+기존 `<nav class="link_tab ...">` / `<li data-tab="biz">` / `<li data-tab="etc">` 그대로 사용합니다.
 
-```jsp
-<%-- [주석처리] 기존 클라이언트 분류/페이징 스크립트 전체 (롤백 대비, 안정화 후 삭제)
-<script>
-(function(){
-    'use strict';
-    var VIEW_URL = '/kor/notification/info_view.do';
-    ...
-    function loadAllPages(triggerFn, onDone){ ... }
-    function classify(items){ ... }
-    function renumber(items){ ... }
-    function loadBoard() { ... }
-    function runSearch() { ... }
-    function afterLoad(items){ ... }
-    function render(tab) { ... }
-    function renderPaging(tab, total, page){ ... }
-    window.goPaging_PagingViewBiz = function(p){ ... };
-    window.goPaging_PagingViewEtc = function(p){ ... };
-    function bindEvents(){ ... $(window).on('resize', ...) ... }
-    jQuery(function(){ ... });
-})();
-</script>
---%>
-```
+### 1-3. 기존 스크립트 [주석처리]
 
-### 2-4. 신규 스크립트 [추가]
+`<script src="/js/cmn/paging.js"></script>` 아래의 기존 `(function(){ 'use strict'; ... })();` 블록 전체를 `<%-- --%>`로 감쌉니다.
+(`loadAllPages`, `classify`, `renumber`, `loadBoard`, `runSearch`, `afterLoad`, `render`, `renderPaging`, `goPaging_PagingViewBiz/Etc`, `bindEvents`)
+
+### 1-4. 신규 스크립트 [추가]
 
 ```html
-<script src="/js/cmn/paging.js"></script>
 <script>
-// board.js boardOutputList()가 0건일 때 전역 boardList.empty()를 호출하므로 반드시 전역
-var boardList;
+var boardList;    // board.js boardOutputList()가 0건일 때 전역 boardList.empty() 호출
 var viewLink;
-// board.js setPaging()이 'PagingView' 토큰으로 페이징 링크를 생성
 var goPaging_PagingView = function (cPage) { boardList.setPage(cPage); };
 
 jQuery(function () {
-    var $list = $('#list');
+    var $tabs = $('.link_tab li[data-tab]');
+
+    // 상세(info_view)에서 '목록'으로 돌아온 경우에만 마지막 탭 복원 (info_view 수정 없이 탭 유지)
+    var savedTab = null;
+    try {
+        if (document.referrer.indexOf('/info_view.do') > -1) {
+            savedTab = sessionStorage.getItem('infoTab');
+        }
+    } catch (e) {}
+    setTab(savedTab === 'etc' ? 'etc' : 'biz');
 
     boardList = new getBoardData({
-        url:      '/kor/notification/selectInfoList.do',      // 신규 API (board.js 수정 없음)
-        urlCount: '/kor/notification/selectInfoListCnt.do',
+        url:      '/kor/notification/selectInfoList.do',     // 탭 목록 API
+        urlCount: '/kor/notification/selectInfoListCnt.do',  // 탭 건수 API
         viewer:   '/kor/notification/info_view.do',
         complete: function (data) {
-            $list.html(boardOutputList('textBoard', data.result));
+            $('#list').html(boardOutputList('textBoard', data.result));
         }
     });
 
     viewLink = function (id) { boardList.viewLink(id); };
     boardList.getList();
 
-    /* 탭 전환 */
-    $('#infoTab').on('click', 'li[data-tab] > a', function (e) {
+    /* 탭 클릭 : 서버에 해당 탭 1페이지 요청 */
+    $tabs.on('click', 'a', function (e) {
         e.preventDefault();
-        var $a  = $(this);
-        var $li = $a.parent();
-        var tab = $li.data('tab');
+        var tab = $(this).parent().data('tab');
         if (tab === $('#tab').val()) return;
 
-        $li.addClass('current').siblings().removeClass('current');
-        $li.siblings().children('a').removeAttr('title');
-        $a.attr('title', '선택됨');
-
-        $('#tab').val(tab);
+        setTab(tab);
         $('#page').val(1);
-        // [정책 선택] 탭 전환 시 검색 초기화가 필요하면 아래 주석 해제
-        // $('#subSech').val(''); $('#searchString').val('');
-
-        // type:'search' → board.js가 캐시한 건수를 무시하고 새 탭 기준으로 재조회
-        boardList.getList({ type: 'search' });
+        boardList.getList({ type: 'search' });   // 'search' → 탭 기준 건수도 다시 조회
     });
 
     /* 검색 : 현재 탭 안에서 검색 */
@@ -204,46 +88,127 @@ jQuery(function () {
         boardList.search({ scope: $('#searchType').val(), text: $('#searchString').val() });
     });
 
-    /* 표시 개수 변경 */
+    /* 보기(표시 개수) */
     $('#btnPage').on('click', function () {
-        // setSize()는 현재 페이지를 유지하므로 범위 초과 방지를 위해 1로 초기화
-        // (boardList.config.config === board.js 내부 boardConfig)
         boardList.config.config.page = 1;
-        boardList.setSize($('#pageSize').val());
+        boardList.setSize($('#pageSize option:selected').val());
     });
+
+    function setTab(tab) {
+        $('#tab').val(tab);
+        $tabs.removeClass('current').children('a').removeAttr('title');
+        $tabs.filter('[data-tab="' + tab + '"]').addClass('current')
+             .children('a').attr('title', '현재 페이지');
+        try { sessionStorage.setItem('infoTab', tab); } catch (e) {}
+    }
 });
 </script>
 ```
 
 ---
 
-## 3. 프론트: `info_view.jsp`
+## 2. Controller — `NotificationController.java`
 
-### `#searchForm` [변경]
+### 2-1. 필드 [추가] (이미 주입되어 있으면 생략)
 
-```jsp
-<form id="searchForm" method="POST">
-    <input type="hidden" name="selScope"       id="selScope" value="<c:out value='${selScope}'/>">
-    <input type="hidden" name="subSech"        id="subSech"  value="<c:out value='${subSech}'/>">
-    <input type="hidden" name="size"           id="size"     value="<c:out value='${size}'/>">
-    <input type="hidden" name="page"           id="page"     value="<c:out value='${page}'/>">
-    <%-- [추가] --%>
-    <input type="hidden" name="seCd"           id="seCd"     value="0002">
-    <%-- [추가] --%>
-    <input type="hidden" name="tab"            id="tab"      value="<c:out value='${tab}'/>">
-    <input type="hidden" name="ntcnYardOrdrNo" id="ntcnYardOrdrNo" value="<c:out value='${ntcnYardOrdrNo}'/>">
-</form>
+```java
+@Autowired
+private MngNotificationService mngNotificationService;
 ```
+
+### 2-2. 탭 목록·건수 API [추가]
+
+```java
+/** 재정정보 탭 목록 : 현재 페이지 분량만 반환 */
+@RequestMapping(value = "/notification/selectInfoList.do")
+public String selectInfoList(HttpServletRequest request, ModelMap model) throws Exception {
+    int size = toInt(request.getParameter("size"), 10, 50);
+    int page = toInt(request.getParameter("page"), 1, 100000);
+
+    List<MngNotificationVO> tabList = selectInfoTabList(request);
+
+    int from = Math.min((page - 1) * size, tabList.size());
+    int to   = Math.min(from + size, tabList.size());
+
+    model.addAttribute("result", new ArrayList<MngNotificationVO>(tabList.subList(from, to)));
+    return "jsonView";
+}
+
+/** 재정정보 탭 건수 */
+@RequestMapping(value = "/notification/selectInfoListCnt.do")
+public String selectInfoListCnt(HttpServletRequest request, ModelMap model) throws Exception {
+    model.addAttribute("result", selectInfoTabList(request).size());
+    return "jsonView";
+}
+
+/** 재정정보 전체를 기존 서비스로 조회한 뒤 요청 탭에 해당하는 글만 반환 */
+private List<MngNotificationVO> selectInfoTabList(HttpServletRequest request) throws Exception {
+    boolean bizTab = !"etc".equals(request.getParameter("tab"));
+
+    MngNotificationVO searchVO = new MngNotificationVO();
+    searchVO.setNtcnYardTySeCd("0002");                       // 재정정보 고정
+    // ▼ 공통 목록 API(/cmn/board/selectBoardListFile.do)와 같은 setter 사용 (이름 확인)
+    searchVO.setSelScope(request.getParameter("selScope"));
+    searchVO.setSubSech(request.getParameter("subSech"));
+    searchVO.setPage("1");                                    // 전체 조회
+    searchVO.setSize("1000");
+    // ▲
+
+    // 공통 목록 API가 호출하는 것과 같은 메서드 (메서드명 확인)
+    List<MngNotificationVO> allList = mngNotificationService.selectBoardListFile(searchVO);
+
+    List<MngNotificationVO> tabList = new ArrayList<MngNotificationVO>();
+    for (MngNotificationVO vo : allList) {
+        String title = vo.getNtcnYardSjNm();
+        boolean isBiz = title != null && title.contains("업무추진비");
+        if (isBiz == bizTab) {
+            tabList.add(vo);
+        }
+    }
+    return tabList;
+}
+
+private static int toInt(String v, int def, int max) {
+    try {
+        int n = Integer.parseInt(v);
+        return (n < 1 || n > max) ? def : n;
+    } catch (NumberFormatException e) {
+        return def;
+    }
+}
+```
+
+import: `java.util.ArrayList`, `java.util.List`, `org.springframework.beans.factory.annotation.Autowired`
 
 ---
 
-## 4. 적용 전 확인
+## 3. Service — 변경 없음
 
-| 항목 | 확인 내용 |
+`MngNotificationService`의 기존 목록 조회 메서드를 그대로 호출합니다.
+첨부파일(`fileList`, 암호화 `fileId`)·상단고정 정렬이 공통 API와 동일하게 나옵니다.
+
+---
+
+## 4. 적용 전 확인 (코드에서 이름만 맞추면 되는 부분)
+
+| 항목 | 확인 방법 |
 |---|---|
-| ▼▲ 사이 4줄 | 공통 `selectBoardListFile.do`에서 `MngNotificationVO`에 검색어·페이징 값을 넣는 줄을 복사하고 page=1, size=`INFO_FETCH_MAX`로만 변경 |
-| 서비스 메서드 | `MngNotificationService`에서 공통 `selectBoardListFile.do`가 호출하는 메서드명과 호출 후 후처리(fileId 암호화 등) 확인. 구현체가 2개 이상이면 `@Qualifier` 추가 |
-| jsonView | `dispatcher-servlet.xml`에 `jsonView` 빈이 있는지 확인. 공통 API가 `@ResponseBody`를 쓰면 그 방식으로 변경 |
-| 반환 타입 | `List<EgovMap>`이면 목록 타입을 맞추고 제목은 `(String) item.get("ntcnYardSjNm")` |
-| size 상한 | 공통 쪽에서 size를 제한하는지 (1000건 일괄 조회가 적용되는지) |
-| 인터셉터 | `/kor/**` 인터셉터가 model에 값을 추가하면 신규 API 경로 2개를 `exclude-mapping` |
+| `▼▲` 4줄 setter 이름·타입 | 공통 `selectBoardListFile.do`에서 VO에 값을 넣는 코드와 동일하게 (int 타입이면 `1`, `1000`) |
+| 서비스 메서드명 | 공통 `selectBoardListFile.do`가 호출하는 `MngNotificationService` 메서드 |
+| 호출 후 후처리 | 공통 API가 서비스 호출 뒤 추가 가공(fileId 등)을 하면 동일하게 |
+| `jsonView` | `dispatcher-servlet.xml`에 빈 존재 여부 (공통 API가 `@ResponseBody`면 그 방식으로) |
+| size 상한 | 공통 쪽에서 size를 제한하면 그 상한이 재정정보 전체 건수보다 큰지 |
+
+---
+
+## 5. 동작 확인
+
+| 시나리오 | 기대 결과 |
+|---|---|
+| 최초 진입 | 요청 2회(목록·건수), 업무추진비 탭, 총 건수 = 업무추진비 건수 |
+| 기타 탭 클릭 | 요청 2회, 기타 건수, 1페이지 |
+| 페이지 클릭 | 요청 1회 |
+| 기타 탭 2페이지 → 상세 → 목록 | 기타 탭 2페이지로 복귀 |
+| 메뉴로 새로 진입 | 업무추진비 탭 1페이지 |
+| 탭 안에서 검색 | 현재 탭 결과만 |
+| 공지사항 등 타 게시판 | 변화 없음 |
