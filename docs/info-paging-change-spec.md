@@ -8,7 +8,7 @@
 | JSP | `info_view.jsp` | 없음 |
 | Controller | `NotificationController.java` | **추가**: 탭 목록·건수 API 2개 + private 메서드 2개 |
 | Controller | `info.do`, `info_view.do` 메서드 | 없음 |
-| Service | `MngNotificationService` | 없음 (기존 목록 조회 메서드 재사용) |
+| Service | 공통 목록 조회 서비스 | 없음 (기존 메서드 재사용) |
 | Mapper / 공통 JS | 공통 Mapper, `board.js`, `paging.js` | 없음 |
 
 ---
@@ -109,11 +109,13 @@ jQuery(function () {
 
 ## 2. Controller — `NotificationController.java`
 
-### 2-1. 필드 [추가] (이미 주입되어 있으면 생략)
+### 2-1. 필드 [추가]
+
+공통 `/cmn/board/selectBoardListFile.do` 컨트롤러가 주입받는 **목록 조회 서비스와 같은 서비스**를 주입합니다 (이미 있으면 생략).
 
 ```java
 @Autowired
-private MngNotificationService mngNotificationService;
+private (공통 목록 서비스 타입) (공통 목록 서비스 변수);
 ```
 
 ### 2-2. 탭 목록·건수 API [추가]
@@ -125,12 +127,12 @@ public String selectInfoList(HttpServletRequest request, ModelMap model) throws 
     int size = toInt(request.getParameter("size"), 10, 50);
     int page = toInt(request.getParameter("page"), 1, 100000);
 
-    List<MngNotificationVO> tabList = selectInfoTabList(request);
+    List<Map<String, Object>> tabList = selectInfoTabList(request);
 
     int from = Math.min((page - 1) * size, tabList.size());
     int to   = Math.min(from + size, tabList.size());
 
-    model.addAttribute("result", new ArrayList<MngNotificationVO>(tabList.subList(from, to)));
+    model.addAttribute("result", new ArrayList<Map<String, Object>>(tabList.subList(from, to)));
     return "jsonView";
 }
 
@@ -141,28 +143,32 @@ public String selectInfoListCnt(HttpServletRequest request, ModelMap model) thro
     return "jsonView";
 }
 
-/** 재정정보 전체를 기존 서비스로 조회한 뒤 요청 탭에 해당하는 글만 반환 */
-private List<MngNotificationVO> selectInfoTabList(HttpServletRequest request) throws Exception {
+/** 공통 목록 조회와 같은 방식으로 재정정보 전체를 조회한 뒤 요청 탭의 글만 반환 */
+private List<Map<String, Object>> selectInfoTabList(HttpServletRequest request) throws Exception {
     boolean bizTab = !"etc".equals(request.getParameter("tab"));
 
-    MngNotificationVO searchVO = new MngNotificationVO();
-    searchVO.setNtcnYardTySeCd("0002");                       // 재정정보 고정
-    // ▼ 공통 목록 API(/cmn/board/selectBoardListFile.do)와 같은 setter 사용 (이름 확인)
-    searchVO.setSelScope(request.getParameter("selScope"));
-    searchVO.setSubSech(request.getParameter("subSech"));
-    searchVO.setPage("1");                                    // 전체 조회
-    searchVO.setSize("1000");
-    // ▲
+    // 공통 selectBoardListFile.do와 같은 params 구성 (page·size·seCd만 고정값)
+    HashMap<String, Object> params = new HashMap<String, Object>();
+    params.put("page", "1");                // 전체 조회
+    params.put("size", "1000");
+    params.put("seCd", "0002");             // 재정정보 고정
+    params.put("selScope",        request.getParameter("selScope"));
+    params.put("subSech",         request.getParameter("subSech"));
+    params.put("viewType",        request.getParameter("viewType"));
+    params.put("atchmnflKndSeCd", request.getParameter("atchmnflKndSeCd"));
+    params.put("ntcnYardKndSeCd", request.getParameter("ntcnYardKndSeCd"));
+    // ※ 공통 메서드가 위 값 외에 추가로 put 하는 값(가공값 등)이 있으면 똑같이 추가
 
-    // 공통 목록 API가 호출하는 것과 같은 메서드 (메서드명 확인)
-    List<MngNotificationVO> allList = mngNotificationService.selectBoardListFile(searchVO);
+    // 공통 selectBoardListFile.do와 같은 서비스·메서드 호출
+    List<Map<String, Object>> allList = (공통 목록 서비스 변수).(공통 목록 메서드)(params);
+    // ※ 공통 메서드가 호출 뒤 목록을 가공하면(fileList, fileId 등) 같은 코드를 여기에 추가
 
-    List<MngNotificationVO> tabList = new ArrayList<MngNotificationVO>();
-    for (MngNotificationVO vo : allList) {
-        String title = vo.getNtcnYardSjNm();
-        boolean isBiz = title != null && title.contains("업무추진비");
+    List<Map<String, Object>> tabList = new ArrayList<Map<String, Object>>();
+    for (Map<String, Object> row : allList) {
+        Object title = row.get("ntcnYardSjNm");
+        boolean isBiz = title != null && title.toString().contains("업무추진비");
         if (isBiz == bizTab) {
-            tabList.add(vo);
+            tabList.add(row);
         }
     }
     return tabList;
@@ -178,26 +184,27 @@ private static int toInt(String v, int def, int max) {
 }
 ```
 
-import: `java.util.ArrayList`, `java.util.List`, `org.springframework.beans.factory.annotation.Autowired`
+import: `java.util.ArrayList`, `java.util.HashMap`, `java.util.List`, `java.util.Map`, `org.springframework.beans.factory.annotation.Autowired`
+
+- 목록 타입 `Map<String, Object>`는 공통 메서드의 반환 타입으로 맞춥니다 (예: `List<EgovMap>`이면 `Map<String, Object>` 자리를 모두 `EgovMap`으로).
+- 제목 키 `ntcnYardSjNm`은 `board.js`가 응답에서 `item.ntcnYardSjNm`으로 읽는 이름과 같습니다.
 
 ---
 
 ## 3. Service — 변경 없음
 
-`MngNotificationService`의 기존 목록 조회 메서드를 그대로 호출합니다.
-첨부파일(`fileList`, 암호화 `fileId`)·상단고정 정렬이 공통 API와 동일하게 나옵니다.
+공통 목록 조회 서비스를 그대로 호출합니다. 비공개·삭제 등 공통 조회 조건(DB 90건 → 화면 68건)과 첨부파일·상단고정 정렬이 그대로 적용됩니다.
 
 ---
 
-## 4. 적용 전 확인 (코드에서 이름만 맞추면 되는 부분)
+## 4. 적용 전 확인
 
 | 항목 | 확인 방법 |
 |---|---|
-| `▼▲` 4줄 setter 이름·타입 | 공통 `selectBoardListFile.do`에서 VO에 값을 넣는 코드와 동일하게 (int 타입이면 `1`, `1000`) |
-| 서비스 메서드명 | 공통 `selectBoardListFile.do`가 호출하는 `MngNotificationService` 메서드 |
-| 호출 후 후처리 | 공통 API가 서비스 호출 뒤 추가 가공(fileId 등)을 하면 동일하게 |
-| `jsonView` | `dispatcher-servlet.xml`에 빈 존재 여부 (공통 API가 `@ResponseBody`면 그 방식으로) |
-| size 상한 | 공통 쪽에서 size를 제한하면 그 상한이 재정정보 전체 건수보다 큰지 |
+| params | 공통 `selectBoardListFile.do`의 `params.put(...)` 줄을 그대로 복사하고 page·size·seCd만 고정값으로 |
+| 서비스·메서드·반환 타입 | 공통 `selectBoardListFile.do`의 서비스 호출 줄 그대로 |
+| 호출 후 가공 | 공통 메서드에 있으면 같은 코드 추가 |
+| `jsonView` | 공통 메서드의 return 방식과 동일하게 (`jsonView` / `@ResponseBody`) |
 
 ---
 
